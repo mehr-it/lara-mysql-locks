@@ -32,7 +32,7 @@
         "MehrIt\\LaraMySqlLocks\\Provider\\DbLockServiceProvider"
       ],
       "aliases": {
-        "Cron": "MehrIt\\LaraMySqlLocks\\Facades\\DbLock"
+        "DbLock": "MehrIt\\LaraMySqlLocks\\Facades\\DbLock"
       }
     }
   }
