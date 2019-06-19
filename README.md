@@ -50,13 +50,12 @@ using the `withLock()` method and pass a callback. `withLock()` ensures that the
 released even if an error is thrown:
 
 	$return = DbLock::withLock(
-		function($lock) {
-			// to some work
-		},
-		'my-lock',
-		5,
-		10
-	);
+			function($lock) {
+			
+			// do some work
+				
+			}, 'my-lock', 5, 10
+		);
 	
 **The `withLock()` method executes the callback within a database transaction.** The
 transaction is rolled back on any thrown or lock errors.
