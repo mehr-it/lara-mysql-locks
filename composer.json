@@ -1,0 +1,39 @@
+{
+  "name": "mehr-it/lara-mysql-locks",
+  "description": "Distributed locks for laravel using MySQL >= 5.7.5 database",
+  "type": "library",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Christopher Mieger",
+      "email": "mail@mehr-it.info"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "MehrIt\\LaraMySqlLocks\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "MehrItLaraMySqlLocksTest\\": "test/"
+    }
+  },
+  "require": {
+    "php": ">=7.1"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^7.0",
+    "orchestra/testbench": "~3.7.0"
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "MehrIt\\LaraMySqlLocks\\Provider\\DbLockServiceProvider"
+      ],
+      "aliases": {
+        "Cron": "MehrIt\\LaraMySqlLocks\\Facades\\DbLock"
+      }
+    }
+  }
+}
