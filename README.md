@@ -1,6 +1,6 @@
 # MySQL based locks for Laravel
 
-This package implements a MySQL based locks for distributed systems with following features:
+This package implements MySQL based locks for distributed systems with following features:
 	
 * named logs without prior initialisation
 * wait timeout for obtaining locks
