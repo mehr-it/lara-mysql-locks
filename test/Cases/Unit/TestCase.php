@@ -9,7 +9,7 @@
 
 	abstract class TestCase extends \Orchestra\Testbench\TestCase
 	{
-		protected $migrationsRun = false;
+		protected static $migrationsRun = false;
 
 		protected function getPackageProviders($app) {
 
@@ -32,13 +32,16 @@
 		protected function setUp() {
 			parent::setUp();
 
+			DB::reconnect();
+			DB::reconnect('other');
+
 			// run migrations
-			if (!$this->migrationsRun) {
+			if (!static::$migrationsRun) {
 
 				// migrations
 				$this->artisan('migrate')->run();
 
-				$this->migrationsRun = true;
+				static::$migrationsRun = true;
 			}
 
 			// clear locks table

@@ -423,7 +423,7 @@
 		 * @return bool True if we got the lock. Else false.
 		 */
 		protected function awaitNativeLock($timeout) : bool {
-			return $this->sqlBoundConnectionExpressionSelect('get_lock(?, ?)', [$this->name, $timeout]) == 1;
+			return $this->sqlBoundConnectionExpressionSelect('get_lock(?, ?)', [$this->nativeLockName(), $timeout]) == 1;
 		}
 
 		/**
@@ -431,7 +431,7 @@
 		 * @return bool True on success. Else false.
 		 */
 		protected function releaseNativeLock(): bool {
-			return $this->sqlBoundConnectionExpressionSelect('release_lock(?)', [$this->name]) == 1;
+			return $this->sqlBoundConnectionExpressionSelect('release_lock(?)', [$this->nativeLockName()]) == 1;
 		}
 
 		/**
@@ -439,7 +439,7 @@
 		 * @return int|null The lock session id or null if not locked
 		 */
 		protected function getNativeLockingSessionId() {
-			return $this->sqlBoundConnectionExpressionSelect('is_used_lock(?)', [$this->name]);
+			return $this->sqlBoundConnectionExpressionSelect('is_used_lock(?)', [$this->nativeLockName()]);
 		}
 
 		/**
@@ -498,7 +498,7 @@
 					       /** @var Builder $query */
 					       $query
 						       ->where(new Expression($grammar->wrap('created') . ' + ' . $grammar->wrap('ttl')), '<', new Expression('unix_timestamp()'))
-						       ->orWhereRaw( '(' . $grammar->wrap('lock_acquired') . ' and ifnull(is_used_lock(?), 0) != ' . $grammar->wrap('connection_id') . ')', [$this->name]);
+						       ->orWhereRaw( '(' . $grammar->wrap('lock_acquired') . ' and ifnull(is_used_lock(?), 0) != ' . $grammar->wrap('connection_id') . ')', [$this->nativeLockName()]);
 				       })
 				       ->delete() == 1;
 		}
@@ -627,5 +627,13 @@
 			finally {
 				config()->set("database.connections.$name", null);
 			}
+		}
+
+		/**
+		 * Gets the name for the native MySQL lock
+		 * @return string The native MySQL lock name
+		 */
+		protected function nativeLockName() : string {
+			return "l{$this->name}";
 		}
 	}

@@ -20,11 +20,14 @@
     }
   },
   "require": {
-    "php": ">=7.1"
+    "php": ">=7.1",
+    "ext-pdo": "*"
   },
   "require-dev": {
     "phpunit/phpunit": "^7.0",
-    "orchestra/testbench": "~3.7.0"
+    "orchestra/testbench": "~3.7.0",
+    "ext-posix": "*",
+    "ext-pcntl": "*"
   },
   "extra": {
     "laravel": {
