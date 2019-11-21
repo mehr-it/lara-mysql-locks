@@ -189,11 +189,13 @@
 
 			// deregister lock
 			try {
-				$released = $this->deregisterLock($this->connectionId());
+				$released = $this->deregisterLock($this->connectionId(), $nativeLockKey);
 
-				// release lock
-				/** @noinspection PhpStatementHasEmptyBodyInspection */
-				while ($this->releaseNativeLock()) {
+				// release native lock
+				if ($released) {
+					/** @noinspection PhpStatementHasEmptyBodyInspection */
+					while ($this->releaseNativeLock($nativeLockKey)) {
+					}
 				}
 			}
 			catch (Throwable $ex) {
@@ -279,9 +281,9 @@
 
 			do {
 				// try to get lock
-				$acquired = $this->getLock();
+				$acquiredNativeLock = $this->getLock();
 
-				if (!$acquired) {
+				if (!$acquiredNativeLock) {
 
 					// try to clean obsolete locks
 					if ($this->cleanLock()) {
@@ -299,14 +301,14 @@
 					$remainingTimeout = ceil($this->timeout - (microtime(true) - $startTime));
 					$remainingTTL     = $this->getExistingLockTTL();
 
-					$this->sleepUntilNativeLockRelease(min($remainingTimeout, $remainingTTL));
+					$this->sleepUntilNativeLockRelease($acquiredNativeLock, min($remainingTimeout, $remainingTTL));
 				}
 
-			} while (!$acquired);
+			} while (!$acquiredNativeLock);
 
 
 			// throw exception if not acquired
-			if (!$acquired)
+			if (!$acquiredNativeLock)
 				throw new DbLockTimeoutException($this->name, $this->timeout);
 
 		}
@@ -315,7 +317,7 @@
 		/** @noinspection PhpDocMissingThrowsInspection */
 		/**
 		 * Tries to get the lock
-		 * @return bool True if got lock. Else false.
+		 * @return string|false The native lock id if got lock. Else false.
 		 * @throws DbLockAcquireException
 		 */
 		protected function getLock() {
@@ -323,32 +325,17 @@
 			$connectionId = $this->connectionId();
 
 			// try to register lock
-			if (!$this->registerLock($connectionId))
+			if (!$this->registerLock($connectionId, $nativeLockKey))
 				return false;
 
 
-			// we are the lock holder, so let's also get the lock
-			$tries = 0;
+			// we are the lock holder, so let's also get the native lock
 			try {
-				while (!$this->awaitNativeLock(0)) {    /* we don't wait, since no other process is legitimated to have the lock */
-					// kill any other session holding the lock, because we are the legitimate lock holder
-					$sessionId = $this->getNativeLockingSessionId();
+				if (!$this->awaitNativeLock($nativeLockKey,0)) {    /* we don't wait, since no other process is legitimated to have the lock */
 
-					if ($sessionId) {
-						try {
-							$this->killSession($sessionId);
-						}
-						catch (PDOException $ex) {
-							// ignore exception since session might have terminated meanwhile
-						}
-					}
-					else {
-						// wait for session to terminate
-						usleep(200000); // 200ms
-					}
+					$sessionId = $this->getNativeLockingSessionId($nativeLockKey);
 
-					if (++$tries > 20)
-						throw new DbLockAcquireException($this->name, "Could not acquire lock \"{$this->name}\". Session {$sessionId} holds it and does not terminate.");
+					throw new DbLockAcquireException($this->name, "Could not acquire lock \"{$this->name}\". Session {$sessionId} holds the native lock \"{$nativeLockKey}\".");
 				}
 
 				// mark the lock as acquired (this mark is used on cleaning to detect died processes faster)
@@ -371,25 +358,34 @@
 				throw $ex;
 			}
 
-			return true;
+			return $nativeLockKey;
 		}
 
 		/**
 		 * Register the lock ownership
+		 * @param $connectionId
+		 * @param string|null $nativeLockKey Returns the key for the native lock
 		 * @return bool True on success. False on error.
 		 */
-		protected function registerLock($connectionId) {
+		protected function registerLock($connectionId, &$nativeLockKey = null) {
 			try {
-				return $this->withFreshConnection(function($fresh) use ($connectionId) {
-					return DB::connection($fresh)
+				return $this->withFreshConnection(function($fresh) use ($connectionId, &$nativeLockKey) {
+
+					$nKey = $this->name . '_' . uniqid();
+
+					$ret = DB::connection($fresh)
 						->table($this->table)
 						->insert([
-							'name'          => $this->name,
-							'created'       => new Expression('unix_timestamp()'),
-							'ttl'           => $this->ttl,
-							'connection_id' => $connectionId,
-							'lock_acquired' => false,
+							'name'            => $this->name,
+							'created'         => new Expression('unix_timestamp()'),
+							'ttl'             => $this->ttl,
+							'connection_id'   => $connectionId,
+							'lock_acquired'   => false,
+							'native_lock_key' => $nKey,
 						]);
+
+					$nativeLockKey = $nKey;
+					return $ret;
 				});
 			}
 			catch (PDOException $ex) {
@@ -404,42 +400,65 @@
 
 		/**
 		 * Deregisters the specified lock
+		 * @param int $connectionId The connection id
+		 * @param string|null $nativeLockKey Returns the native lock id
 		 * @return boolean True if lock was released. False if there was nothing to release
 		 */
-		protected function deregisterLock($connectionId) {
+		protected function deregisterLock($connectionId, &$nativeLockKey = null) {
 
-			return $this->withFreshConnection(function($fresh) use ($connectionId) {
-				return DB::connection($fresh)
-					       ->table($this->table)
-					       ->where('name', '=', $this->name)
-					       ->where('connection_id', '=', $connectionId)
-					       ->delete() == 1;
+			return $this->withFreshConnection(function($fresh) use ($connectionId, &$nativeLockKey) {
+				$existing = (array)DB::connection($fresh)
+					->table($this->table)
+					->select()
+					->where('name', '=', $this->name)
+					->where('connection_id', '=', $connectionId)
+					->first();
+
+				if ($existing) {
+
+					$nativeLockKey = $existing['native_lock_key'];
+
+					DB::connection($fresh)
+						->table($this->table)
+						->select()
+						->where('name', '=', $this->name)
+						->where('connection_id', '=', $connectionId)
+						->delete();
+
+					return true;
+				}
+				else {
+					return false;
+				}
 			});
 		}
 
 		/**
 		 * Wait until the native DB lock is free
+		 * @param string $nativeLockKey The key of the native lock
 		 * @param int $timeout The look timeout
 		 * @return bool True if we got the lock. Else false.
 		 */
-		protected function awaitNativeLock($timeout) : bool {
-			return $this->sqlBoundConnectionExpressionSelect('get_lock(?, ?)', [$this->nativeLockName(), $timeout]) == 1;
+		protected function awaitNativeLock(string $nativeLockKey, int $timeout) : bool {
+			return $this->sqlBoundConnectionExpressionSelect('get_lock(?, ?)', [$nativeLockKey, $timeout]) == 1;
 		}
 
 		/**
 		 * Releases the native DB lock
+		 * @param string $nativeLockKey The key of the native lock
 		 * @return bool True on success. Else false.
 		 */
-		protected function releaseNativeLock(): bool {
-			return $this->sqlBoundConnectionExpressionSelect('release_lock(?)', [$this->nativeLockName()]) == 1;
+		protected function releaseNativeLock(string $nativeLockKey): bool {
+			return $this->sqlBoundConnectionExpressionSelect('release_lock(?)', [$nativeLockKey]) == 1;
 		}
 
 		/**
 		 * Get the id of the session holding the native DB lock
+		 * @param string $nativeLockKey The key of the native lock
 		 * @return int|null The lock session id or null if not locked
 		 */
-		protected function getNativeLockingSessionId() {
-			return $this->sqlBoundConnectionExpressionSelect('is_used_lock(?)', [$this->nativeLockName()]);
+		protected function getNativeLockingSessionId(string $nativeLockKey) {
+			return $this->sqlBoundConnectionExpressionSelect('is_used_lock(?)', [$nativeLockKey]);
 		}
 
 		/**
@@ -491,31 +510,51 @@
 
 			$grammar = $this->queryGrammar();
 
+			$expired = (array)DB::table($this->table)
+				->select()
+				->where('name', '=', $this->name)
+				->where(function ($query) use ($grammar) {
+					/** @var Builder $query */
+					$query
+						->where(new Expression($grammar->wrap('created') . ' + ' . $grammar->wrap('ttl')), '<', new Expression('unix_timestamp()'))
+						->orWhereRaw('(' . $grammar->wrap('lock_acquired') . ' and ifnull(is_used_lock(' . $grammar->wrap('native_lock_key') . '), 0) != ' . $grammar->wrap('connection_id') . ')');
+				})
+				->first();
 
-			return DB::table($this->table)
-				       ->where('name', '=', $this->name)
-				       ->where(function ($query) use ($grammar) {
-					       /** @var Builder $query */
-					       $query
-						       ->where(new Expression($grammar->wrap('created') . ' + ' . $grammar->wrap('ttl')), '<', new Expression('unix_timestamp()'))
-						       ->orWhereRaw( '(' . $grammar->wrap('lock_acquired') . ' and ifnull(is_used_lock(?), 0) != ' . $grammar->wrap('connection_id') . ')', [$this->nativeLockName()]);
-				       })
-				       ->delete() == 1;
+			if ($expired) {
+
+				// kill expired session
+				$expiredSession = $this->getNativeLockingSessionId($expired['native_lock_key']);
+				if ($expiredSession)
+					$this->killSession($expiredSession);
+
+				// delete lock table entry
+				DB::table($this->table)
+					->where('name', '=', $this->name)
+					->where('native_lock_key', $expired['native_lock_key'])
+					->delete();
+
+				return true;
+			}
+			else {
+				return false;
+			}
 		}
 
 		/**
 		 * Lets the process sleep until specified lock is released or timeout is elapsed
+		 * @param string $nativeLockKey The native lock key
 		 * @param int $timeout The timeout
 		 * @return bool True if lock was released. False if timed out
 		 */
-		protected function sleepUntilNativeLockRelease($timeout) : bool {
+		protected function sleepUntilNativeLockRelease(string $nativeLockKey, int $timeout) : bool {
 
 			// try to get lock
-			$gotLock = $this->awaitNativeLock($timeout);
+			$gotLock = $this->awaitNativeLock($nativeLockKey, $timeout);
 
 			// release lock if we got it (we only wanted to wait until it was released)
 			if ($gotLock)
-				$this->releaseNativeLock();
+				$this->releaseNativeLock($nativeLockKey);
 
 			return $gotLock;
 		}

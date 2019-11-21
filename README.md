@@ -10,8 +10,6 @@ This package implements MySQL based locks for distributed systems with following
 * waiting for locks uses blocking database requests, not polling
 * locks released before TTL can immediately be acquired by other processes 
 
-In addition so called "Waits" are implemented, which do not implement TTL.
-
 ## Requirements
 
 * PHP >= 7.1
@@ -108,49 +106,6 @@ If you don't want an exception, you my use `remainsAcquiredFor()`:
 		// handle lock timeout
 	}
 
-## Waits
-Waits are very similar to locks, except that they have not TTL. As a result, the implementation is
-much simpler and a little faster.
-
-Waits can be very useful when you have to wait for a resource to become ready. Imagine a process
-creating a new order record in the database while using a database transaction. It is good practice
-to emit the queued "OrderCreated" event from within the transaction to ensure a rollback, if event
-dispatch fails.
-
-But this causes another problem: the event might be processed before the transaction has been committed.
-To avoid this, a wait could be created within the transaction:
-
-	
-	
-	$wait = null;
-	DB::transaction(function() use (&$wait) {
-	
-		/* create order */
-	
-		// create wait
-		$wait = DbLock::wait('my-lock');
-			
-		// emit event	
-		emit(new OrderCreated());
-	
-	});
-	
-	// release wait (this is now save to do, because the transaction has committed)
-	$wait->release();
-	
-	
-	
-The listener would call `awaitRelease()` before actually handling the event:
-
-	function handle($event) {
-	
-        DbLock::awaitRelease('my-lock', 5);
-		
-        /* handle event */
-	
-	}
-
-
 ## Limitations
-MySQL has a maximum length of lock names. Therefore you must not use lock/wait names with more than
-63 characters.
+MySQL has a maximum length of lock names. Therefore you must not use lock names with more than
+50 characters.
