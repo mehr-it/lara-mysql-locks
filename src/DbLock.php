@@ -7,6 +7,7 @@
 	use Illuminate\Database\Connection;
 	use Illuminate\Database\Query\Builder;
 	use Illuminate\Database\Query\Expression;
+	use Illuminate\Database\QueryException;
 	use Illuminate\Support\Facades\DB;
 	use Illuminate\Support\Str;
 	use InvalidArgumentException;
@@ -309,7 +310,7 @@
 
 			// throw exception if not acquired
 			if (!$acquiredNativeLock)
-				throw new DbLockTimeoutException($this->name, $this->timeout);
+				throw new DbLockTimeoutException($this->name, $this->timeout, $this->getExistingLockTTL());
 
 		}
 
@@ -393,6 +394,14 @@
 				// duplicate key [23000] exception is expected here, so simply return false if thrown
 				if ($ex->getCode() == 23000)
 					return false;
+				// deadlock [40001] exception may sometimes occur, but should not bother as we simply can retry
+				if ($ex->getCode() == 40001) {
+
+					// for debugging deadlocks:
+					//echo 'Dead lock ' . $GLOBALS['count'] . '  ' . microtime(true) . "\n";
+
+					return false;
+				}
 
 				throw $ex;
 			}
@@ -508,37 +517,46 @@
 		 */
 		protected function cleanLock() {
 
-			$grammar = $this->queryGrammar();
 
-			$expired = (array)DB::table($this->table)
-				->select()
-				->where('name', '=', $this->name)
-				->where(function ($query) use ($grammar) {
-					/** @var Builder $query */
-					$query
-						->where(new Expression($grammar->wrap('created') . ' + ' . $grammar->wrap('ttl')), '<', new Expression('unix_timestamp()'))
-						->orWhereRaw('(' . $grammar->wrap('lock_acquired') . ' and ifnull(is_used_lock(' . $grammar->wrap('native_lock_key') . '), 0) != ' . $grammar->wrap('connection_id') . ')');
-				})
-				->first();
 
-			if ($expired) {
+			return $this->withFreshConnection(function($fresh) {
 
-				// kill expired session
-				$expiredSession = $this->getNativeLockingSessionId($expired['native_lock_key']);
-				if ($expiredSession)
-					$this->killSession($expiredSession);
+				$grammar = $this->queryGrammar();
 
-				// delete lock table entry
-				DB::table($this->table)
+				$expired = (array)DB::connection($fresh)
+					->table($this->table)
+					->select()
 					->where('name', '=', $this->name)
-					->where('native_lock_key', $expired['native_lock_key'])
-					->delete();
+					->where(function ($query) use ($grammar) {
+						/** @var Builder $query */
+						$query
+							->where(new Expression($grammar->wrap('created') . ' + ' . $grammar->wrap('ttl')), '<', new Expression('unix_timestamp()'))
+							->orWhereRaw('(' . $grammar->wrap('lock_acquired') . ' and ifnull(is_used_lock(' . $grammar->wrap('native_lock_key') . '), 0) != ' . $grammar->wrap('connection_id') . ')');
+					})
+					->first();
 
-				return true;
-			}
-			else {
-				return false;
-			}
+				if ($expired) {
+
+					// kill expired session
+					$expiredSession = $this->getNativeLockingSessionId($expired['native_lock_key']);
+					if ($expiredSession)
+						$this->killSession($expiredSession);
+
+					// delete lock table entry
+					DB::connection($fresh)
+						->table($this->table)
+						->where('name', '=', $this->name)
+						->where('native_lock_key', $expired['native_lock_key'])
+						->delete();
+
+					return true;
+				}
+				else {
+					return false;
+				}
+			});
+
+
 		}
 
 		/**
@@ -643,6 +661,15 @@
 					return call_user_func($callback, $freshName);
 				}
 				finally {
+
+
+					// instantly close connection => this seams to help us to protect from deadlocks on insert
+					try {
+						DB::connection($freshName)->affectingStatement('kill connection_id()');
+					}
+					catch(QueryException $ex) {}
+
+
 					// purge the connection after usage - we do not need it again
 					/** @noinspection PhpUndefinedMethodInspection */
 					DB::purge($freshName);
