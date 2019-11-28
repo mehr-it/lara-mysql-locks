@@ -29,7 +29,7 @@
 			$app['config']->set('database.connections.other', $app['config']->get('database.connections.' . $app['config']->get('database.default')));
 		}
 
-		protected function setUp() {
+		protected function setUp(): void {
 			parent::setUp();
 
 			DB::reconnect();

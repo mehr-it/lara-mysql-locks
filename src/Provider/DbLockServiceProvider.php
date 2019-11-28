@@ -4,15 +4,13 @@
 	namespace MehrIt\LaraMySqlLocks\Provider;
 
 
+	use Illuminate\Contracts\Support\DeferrableProvider;
 	use Illuminate\Support\ServiceProvider;
 	use MehrIt\LaraMySqlLocks\DbLockFactory;
 
 
-	class DbLockServiceProvider extends ServiceProvider
+	class DbLockServiceProvider extends ServiceProvider implements DeferrableProvider
 	{
-
-		protected $defer = true;
-
 
 		/**
 		 * All of the container singletons that should be registered.
