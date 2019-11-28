@@ -38,6 +38,7 @@ services:
   - mysql
 
 before_script:
+  - phpenv config-rm xdebug.ini || true
   - composer config discard-changes true
 
 before_install:
