@@ -5,6 +5,7 @@
 
 
 	use Illuminate\Support\Facades\DB;
+	use Illuminate\Support\Str;
 	use MehrIt\LaraMySqlLocks\DbLock;
 	use MehrIt\LaraMySqlLocks\Exception\DbLockException;
 	use MehrIt\LaraMySqlLocks\Exception\DbLockReleaseException;
@@ -488,7 +489,7 @@
 					catch (\PDOException $ex) {
 
 
-						if (strpos($ex->getMessage(), 'MySQL server has gone away') !== false)
+						if (Str::contains($ex->getMessage(), ['MySQL server has gone away', 'Error while sending STMT_PREPARE packet']))
 							$this->sendMessage('connection lost', $sh);
 						else
 							$this->sendMessage('received unexpected PDO error: ' . $ex->getMessage(), $sh);
@@ -547,7 +548,7 @@
 					catch (\PDOException $ex) {
 
 
-						if (strpos($ex->getMessage(), 'MySQL server has gone away') !== false)
+						if (Str::contains($ex->getMessage(), ['MySQL server has gone away', 'Error while sending STMT_PREPARE packet']))
 							$this->sendMessage('connection lost', $sh);
 						else
 							$this->sendMessage('received unexpected PDO error: ' . $ex->getMessage(), $sh);
