@@ -201,7 +201,7 @@
 			}
 			catch (Throwable $ex) {
 				if ($this->causedByLostConnection($ex))
-					throw new DbLockReleaseException($this->name, "Releasing lock {$this->name} failed. {$ex->getMessage()}");
+					throw new DbLockReleaseException($this->name, "Releasing lock {$this->name} failed. {$ex->getMessage()}", 0, $ex);
 
 				/** @noinspection PhpUnhandledExceptionInspection */
 				throw $ex;
@@ -209,7 +209,7 @@
 
 			// throw exception if could not be released
 			if (!$released)
-				throw new DbLockReleaseException($this->name);
+				throw new DbLockReleaseException($this->name, "Failed releasing {$this->name} - does not exist");
 
 
 			return $this;
@@ -536,6 +536,8 @@
 					->first();
 
 				if ($expired) {
+
+					logger()->debug("Cleaning up expired session holding lock \"{$this->name}\".", $expired);
 
 					// kill expired session
 					$expiredSession = $this->getNativeLockingSessionId($expired['native_lock_key']);
