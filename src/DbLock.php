@@ -188,6 +188,9 @@
 		 */
 		public function release() {
 
+			$ts        = microtime(true);
+			$tsDiffStr = number_format($ts - $this->createdAt, 3, '.', '');
+
 			// deregister lock
 			try {
 				$released = $this->deregisterLock($this->connectionId(), $nativeLockKey);
@@ -201,7 +204,7 @@
 			}
 			catch (Throwable $ex) {
 				if ($this->causedByLostConnection($ex))
-					throw new DbLockReleaseException($this->name, "Releasing lock {$this->name} failed. {$ex->getMessage()}", 0, $ex);
+					throw new DbLockReleaseException($this->name, "Releasing lock {$this->name} after {$tsDiffStr}s failed. {$ex->getMessage()}", 0, $ex);
 
 				/** @noinspection PhpUnhandledExceptionInspection */
 				throw $ex;
@@ -209,7 +212,7 @@
 
 			// throw exception if could not be released
 			if (!$released)
-				throw new DbLockReleaseException($this->name, "Failed releasing {$this->name} - does not exist");
+				throw new DbLockReleaseException($this->name, "Failed releasing lock {$this->name} after {$tsDiffStr}s. It does not exist anymore.");
 
 
 			return $this;
