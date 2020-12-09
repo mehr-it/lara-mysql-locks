@@ -240,18 +240,18 @@
 				return $this->withFreshConnection(function ($fresh) use ($minTTL) {
 					$grammar = $this->queryGrammar();
 
-					return ((array)DB::connection($fresh)
-							->table($this->table)
-							->select(new Expression('1 as res'))
-							->where('name', '=', $this->name)
-							->where('connection_id', '=', $this->connectionId())
-							->whereRaw(new Expression($grammar->wrap('created') . ' + ' . $grammar->wrap('ttl') . ' > unix_timestamp() + ?'), [$minTTL])
-							->first())['res'] ?? null == 1;
+					$remaining = DB::connection($fresh)
+						->table($this->table)
+						->where('name', '=', $this->name)
+						->where('connection_id', '=', $this->connectionId())
+						->value(new Expression('cast(' . $grammar->wrap('created') . ' + ' . $grammar->wrap('ttl') . ' as signed) - cast(unix_timestamp() as signed) as remaining'));
+
+					return $remaining !== null && $remaining > $minTTL;
 				});
 			}
 			catch (Throwable $ex) {
 				if ($this->causedByLostConnection($ex))
-					return 0;
+					return false;
 
 				/** @noinspection PhpUnhandledExceptionInspection */
 				throw $ex;
@@ -305,7 +305,7 @@
 					$remainingTimeout = ceil($this->timeout - (microtime(true) - $startTime));
 					$remainingTTL     = $this->getExistingLockTTL();
 
-					$this->sleepUntilNativeLockRelease($acquiredNativeLock, min($remainingTimeout, $remainingTTL));
+					$this->sleepUntilNativeLockRelease(min($remainingTimeout, $remainingTTL));
 				}
 
 			} while (!$acquiredNativeLock);
@@ -508,7 +508,7 @@
 
 				return (((array)DB::connection($fresh)
 							->table($this->table)
-					        ->select(new Expression($grammar->wrap('created') . ' + ' . $grammar->wrap('ttl') . ' - unix_timestamp() as ttl'))
+					        ->select(new Expression('cast(' . $grammar->wrap('created') . ' + ' . $grammar->wrap('ttl') . ' as signed) - cast(unix_timestamp() as signed) as ttl'))
 					        ->where('name', '=', $this->name)
 					        ->first())['ttl'] ?? null) ?: 0;
 			});
@@ -565,21 +565,29 @@
 		}
 
 		/**
-		 * Lets the process sleep until specified lock is released or timeout is elapsed
-		 * @param string $nativeLockKey The native lock key
+		 * Lets the process sleep until native lock is released or timeout is elapsed
 		 * @param int $timeout The timeout
-		 * @return bool True if lock was released. False if timed out
 		 */
-		protected function sleepUntilNativeLockRelease(string $nativeLockKey, int $timeout) : bool {
+		protected function sleepUntilNativeLockRelease(int $timeout) {
 
-			// try to get lock
-			$gotLock = $this->awaitNativeLock($nativeLockKey, $timeout);
+			// select the current native lock key
+			$nativeLockKey = $this->withFreshConnection(function ($fresh) {
+				return DB::connection($fresh)
+					       ->table($this->table)
+					       ->where('name', '=', $this->name)
+						   ->value('native_lock_key');
+			});
 
-			// release lock if we got it (we only wanted to wait until it was released)
-			if ($gotLock)
-				$this->releaseNativeLock($nativeLockKey);
+			// if the native lock still exists, we wait for it
+			if ($nativeLockKey) {
 
-			return $gotLock;
+				// try to get lock
+				$gotLock = $this->awaitNativeLock($nativeLockKey, $timeout);
+
+				// release lock if we got it (we only wanted to wait until it was released)
+				if ($gotLock)
+					$this->releaseNativeLock($nativeLockKey);
+			}
 		}
 
 		protected function sqlBoundConnectionExpressionSelect($expression, $bindings = []) {

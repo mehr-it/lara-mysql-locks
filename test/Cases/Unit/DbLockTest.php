@@ -476,7 +476,7 @@
 
 					$this->sendMessage('acquired', $sh);
 
-					sleep(3);
+					sleep(4);
 
 
 					try {
@@ -536,7 +536,7 @@
 
 					$this->sendMessage('acquired', $sh);
 
-					sleep(3);
+					sleep(4);
 
 
 					try {
@@ -594,7 +594,7 @@
 
 					$this->sendMessage('acquired', $sh);
 
-					sleep(3);
+					sleep(4);
 
 
 					try {
@@ -648,7 +648,7 @@
 
 					$this->sendMessage('acquired', $sh);
 
-					sleep(3);
+					sleep(4);
 
 
 					try {
@@ -1015,7 +1015,7 @@
 
 			$lock = new DbLock($lockName, 0, 10);
 
-			$this->assertTrue($lock->remainsAcquiredFor(9));
+			$this->assertTrue($lock->remainsAcquiredFor(8));
 		}
 
 		public function testRemainsAcquiredFor_otherConn() {
@@ -1024,7 +1024,7 @@
 
 			$lock = new DbLock($lockName, 0, 10, 'other');
 
-			$this->assertTrue($lock->remainsAcquiredFor(9));
+			$this->assertTrue($lock->remainsAcquiredFor(8));
 		}
 
 		public function testRemainsAcquiredFor_notEnoughRemaining() {
