@@ -335,11 +335,14 @@
 
 			// we are the lock holder, so let's also get the native lock
 			try {
-				if (!$this->awaitNativeLock($nativeLockKey,0)) {    /* we don't wait, since no other process is legitimated to have the lock */
+				if (!$this->awaitNativeLock($nativeLockKey, 1)) {    /* we wait a short time here, because the releasing process is not atomic and the entry might already be removed but the native lock might not be released yet */
 
-					$sessionId = $this->getNativeLockingSessionId($nativeLockKey);
+					// We could register the lock but not take the native lock. This can rarely happen if the releasing process hangs
+					// before the native lock can be released. We unregister the lock and try again later.
 
-					throw new DbLockAcquireException($this->name, "Could not acquire lock \"{$this->name}\". Session {$sessionId} holds the native lock \"{$nativeLockKey}\".");
+					$this->deregisterLock($connectionId);
+
+					return false;
 				}
 
 				// mark the lock as acquired (this mark is used on cleaning to detect died processes faster)

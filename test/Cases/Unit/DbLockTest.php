@@ -536,7 +536,7 @@
 
 					$this->sendMessage('acquired', $sh);
 
-					sleep(4);
+					sleep(5);
 
 
 					try {
