@@ -6,6 +6,7 @@
 
 	use Illuminate\Support\Facades\DB;
 	use Illuminate\Support\Str;
+	use InvalidArgumentException;
 	use MehrIt\LaraMySqlLocks\DbLock;
 	use MehrIt\LaraMySqlLocks\Exception\DbLockException;
 	use MehrIt\LaraMySqlLocks\Exception\DbLockReleaseException;
@@ -16,6 +17,14 @@
 	{
 		use TestsParallelProcesses;
 
+		public function testLockNameTooLong() {
+
+			$this->expectException(InvalidArgumentException::class);
+
+			new DbLock(str_repeat('n', 51), 0, 1);
+			
+		}
+		
 		public function testLock_acquiredLongerThanTTLIfNotAcquiredByAnotherProcess() {
 
 			$lockName = uniqid();

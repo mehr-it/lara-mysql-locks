@@ -73,6 +73,8 @@
 
 			if (trim($name) === '')
 				throw new InvalidArgumentException("Invalid lock name \"{$name}\"");
+			if (strlen($name) > 50)
+				throw new InvalidArgumentException("Lock name must not exceed 50 chars, but length of \"{$name}\" is " . strlen($name));
 			if ($timeout < 0)
 				throw new InvalidArgumentException("Timeout must not be negative");
 			if ($ttl < 0)
